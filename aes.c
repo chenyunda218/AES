@@ -24,6 +24,7 @@ void MixColumnsInv(BYTE state[]); //inverse MixColumns
 void AddRoundKey(BYTE buffer[],BYTE key[]); //Add Round Key
 void KeyExpansion(BYTE rkey[],BYTE key[]); //Key Expansion
 
+void push(BYTE *buffer,BYTE *iv); //加入偏移量
 
 void copyBuff(BYTE from[],BYTE to[]); //復制buffer
 void xor(BYTE *buffer,BYTE *last); //xor
@@ -64,14 +65,14 @@ BYTE AES_xtime[256]; //MixColumns所使用的陣列
 BYTE keyLen = 4; //key長度
 char inputFile[100] = {0}; //輸入檔案
 char outputFile[100] = {0}; //輸出檔案
-BYTE key[32] = {0}; //key
-BYTE key1[32] = {0};
+BYTE key[32] = {0}; //current key
+BYTE key1[32] = {0}; //key 1
 BYTE key2[32] = {0}; //key 2
 BYTE key3[32] = {0}; //key 3
 BYTE *rkey; //round key
-BYTE rkey1[160] = {0}; //round key
-BYTE rkey2[160] = {0}; //round key
-BYTE rkey3[160] = {0}; //round key
+BYTE rkey1[160] = {0}; //round key1
+BYTE rkey2[160] = {0}; //round key2
+BYTE rkey3[160] = {0}; //round key3
 char mode[5] = "ECB"; //加密模式
 char en = 1; //加解密旗號
 char n = 1; //偏移量
@@ -255,7 +256,7 @@ void AddRoundKey(BYTE buffer[],BYTE key[]){
 
 void xor(BYTE *buffer,BYTE *last){
     for(int i=0;i<BLOCK;i++){
-        buffer[i] = buffer[i] ^ last[i];
+        buffer[i] = buffer[i] ^ last[i]; //取xor值
     }
 }
 
@@ -272,93 +273,107 @@ void KeyExpansion(BYTE rkey[],BYTE key[]){
 }
 
 void enBLOCK(BYTE buffer[]){
-    AddRoundKey(buffer,rkey);
+    AddRoundKey(buffer,rkey); //加入回合金鑰
     for(int i=1;i<10;i++){
-        SubBytes(buffer);
-        ShiftRows(buffer);
-        MixColumns(buffer);
-        AddRoundKey(buffer,&rkey[i*16]);
+        SubBytes(buffer);  //SubBytes
+        ShiftRows(buffer); //Shift Rows
+        MixColumns(buffer); //MixColumns
+        AddRoundKey(buffer,&rkey[i*16]); //加入回合金鑰
     }
-    SubBytes(buffer);
-    ShiftRows(buffer);
-    AddRoundKey(buffer,&rkey[144]);
+    SubBytes(buffer); //SubBytes
+    ShiftRows(buffer); //Shift Rows
+    AddRoundKey(buffer,&rkey[144]); //加入回合金鑰
 }
 
 void deBLOCK(BYTE buffer[]){
-    AddRoundKey(buffer,&rkey[144]);
-    ShiftRowsInv(buffer);
-    SubBytesInv(buffer);
+    AddRoundKey(buffer,&rkey[144]); //加入回合金鑰
+    ShiftRowsInv(buffer); //invert Shift Rows
+    SubBytesInv(buffer); //invert SubBytes
     for(int i=9;i>=1;i--){
-        AddRoundKey(buffer,&rkey[i*16]);
-        MixColumnsInv(buffer);
-        ShiftRowsInv(buffer);
-        SubBytesInv(buffer);
+        AddRoundKey(buffer,&rkey[i*16]); //加入回合金鑰
+        MixColumnsInv(buffer); //invert MixColumns
+        ShiftRowsInv(buffer); //invert Shift Rows
+        SubBytesInv(buffer); //invert SubBytes
     }
-    AddRoundKey(buffer,rkey);
+    AddRoundKey(buffer,rkey); //加入回合金鑰
 }
 
 void enECB(char in[],char out[]){
     FILE * filer, * filew;
     BYTE buffer[BLOCK];
-    filer=fopen(in,"rb");
-    filew=fopen(out,"wb");
-    fseek(filer,0,SEEK_END);
-    int size = ftell(filer);
-    int body = size / BLOCK;
-    int tail = size % BLOCK;
-    fwrite(&tail,1,1,filew);
-    rewind(filer);
-	for(int i=0;i<body;i++){
-        fread(buffer,1,BLOCK,filer);
-        enBLOCK(buffer);
-        if(T){
-            rkey = rkey2;
-            deBLOCK(buffer);
-            rkey = rkey3;
-            enBLOCK(buffer);
-            rkey = rkey1;
+    filer=fopen(in,"rb"); //開啓輸入檔案
+    filew=fopen(out,"wb"); //開啓輸出檔案
+    fseek(filer,0,SEEK_END); //指標移至檔案尾
+    int size = ftell(filer); //取得檔案大小
+    int body = size / BLOCK; //取得檔案分块數
+    int tail = size % BLOCK; //取得檔案填充數
+    fwrite(&tail,1,1,filew); //寫入檔案填充數
+    rewind(filer); //指標移至檔案頭
+    for(int i=0;i<body;i++){
+        fread(buffer,1,BLOCK,filer); //讀取檔案
+        enBLOCK(buffer); //加密檔案块
+        if(T){ //如果使用3AES時會執行
+            rkey = rkey2; //使用key2
+            deBLOCK(buffer); //使用key2解密
+            rkey = rkey3; //使用key3
+            enBLOCK(buffer); //使用key3加密
+            rkey = rkey1; //使用key1
         }
         fwrite(buffer,1,BLOCK,filew);
     }
-    if(tail > 0){
-        fread(buffer,1,BLOCK,filer);
-        enBLOCK(buffer);
-        fwrite(buffer,1,BLOCK,filew);
+    if(tail > 0){ //填充檔案
+        fread(buffer,1,BLOCK,filer); //讀取檔案
+        enBLOCK(buffer); //加密檔案块
+        if(T){ //如果使用3AES時會執行
+            rkey = rkey2; //使用key2
+            deBLOCK(buffer); //使用key2解密
+            rkey = rkey3; //使用key3
+            enBLOCK(buffer); //使用key3加密
+            rkey = rkey1; //使用key1
+        }
+        fwrite(buffer,1,BLOCK,filew); //寫入輸出檔案
     }
-    fclose(filer);
-    fclose(filew);
+    fclose(filer); //關閉輸入檔案
+    fclose(filew); //關閉輸出檔案
 }
 
 void deECB(char in[],char out[]){
     FILE * filer, * filew;
     BYTE buffer[BLOCK];
-    filer=fopen(in,"rb");
-    filew=fopen(out,"wb");
-    fseek(filer,0,SEEK_END);
-    int size = ftell(filer);
-    int body = size / BLOCK - 1;
-    int tail;
-    rewind(filer);
-    fread(&tail,1,1,filer);
+    filer=fopen(in,"rb"); //開啓輸入檔案
+    filew=fopen(out,"wb"); //開啓輸出檔案
+    fseek(filer,0,SEEK_END); //指針移至檔案尾部
+    int size = ftell(filer); //取得檔案大小
+    int body = size / BLOCK - 1; //取得檔案分块數
+    int tail; //檔案填充數
+    rewind(filer); //指針移玉檔案頭部
+    fread(&tail,1,1,filer); //讀取檔案填充數
     for(int i=0;i<body;i++){
-        fread(buffer,1,BLOCK,filer);
-        if(T){
-            rkey = rkey3;
-            deBLOCK(buffer);
-            rkey = rkey2;
-            enBLOCK(buffer);
-            rkey = rkey1;
+        fread(buffer,1,BLOCK,filer); //讀取輸入檔案
+        if(T){ //如果使用3AES時會執行
+            rkey = rkey3; //使用key3
+            deBLOCK(buffer); //使用key3解密
+            rkey = rkey2; //使用key2
+            enBLOCK(buffer); //使用key2加密
+            rkey = rkey1; //使用key1
         }
-        deBLOCK(buffer);
-        fwrite(buffer,1,BLOCK,filew);
+        deBLOCK(buffer); //使用key1解密
+        fwrite(buffer,1,BLOCK,filew); //寫入輸出檔案
     }
-    if(tail > 0){
-        fread(buffer,1,BLOCK,filer);
-        deBLOCK(buffer);
-        fwrite(buffer,1,tail,filew);
+    if(tail > 0){ //當有填充時執行
+        fread(buffer,1,BLOCK,filer); //讀取輸入檔案
+        if(T){ //如果使用3AES時會執行
+            rkey = rkey3; //使用key3
+            deBLOCK(buffer); //使用key3解密
+            rkey = rkey2; //使用key2
+            enBLOCK(buffer); //使用key2加密
+            rkey = rkey1; //使用key1
+        }
+        deBLOCK(buffer); //使用key1解密
+        fwrite(buffer,1,tail,filew); //寫入輸出檔案
     }
-    fclose(filer);
-    fclose(filew);
+    fclose(filer); //關閉輸入檔案
+    fclose(filew); //關閉輸出檔案
 }
 
 void enCBC(char in[],char out[]){
@@ -372,7 +387,7 @@ void enCBC(char in[],char out[]){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             xor(buffer,last);
             enBLOCK(buffer);
-            if(T){
+            if(T){ //如果使用3AES時會執行
                 rkey = rkey2;
                 deBLOCK(buffer);
                 rkey = rkey3;
@@ -398,7 +413,7 @@ void deCBC(char in[],char out[]){
     while(feof(filer)==0){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             copyBuff(buffer,next);
-            if(T){
+            if(T){ //如果使用3AES時會執行
                 rkey = rkey3;
                 deBLOCK(buffer);
                 rkey = rkey2;
@@ -415,7 +430,7 @@ void deCBC(char in[],char out[]){
     fclose(filew);
 }
 
-void increase(BYTE counter[]){
+void increase(BYTE counter[]){ //CTR 增量器
     BYTE carry = 1;
     for(int i=0;i<16;i++){
         if(carry == 1 && counter[i] == 255){
@@ -432,7 +447,7 @@ void CTR(char in[],char out[]){
     FILE * filer, * filew;
     int numr,numw;
     BYTE buffer[BLOCK];
-    BYTE counter[BLOCK] = {2,3,1,1,1,2,3,1,1,1,2,3,3,1,1,2};
+    BYTE counter[BLOCK] = {2,3,1,1,1,2,3,1,1,1,2,3,3,1,1,2}; //counter
     BYTE last[BLOCK];
     filer=fopen(in,"rb");
 	filew=fopen(out,"wb");
@@ -440,7 +455,7 @@ void CTR(char in[],char out[]){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             copyBuff(counter,last);
             enBLOCK(last);
-            if(T){
+            if(T){ //如果使用3AES時會執行
                 rkey = rkey2;
                 deBLOCK(last);
                 rkey = rkey3;
@@ -480,7 +495,7 @@ void enCFB(char in[],char out[]){
 	while(feof(filer)==0){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             enBLOCK(iv);
-            if(T){
+            if(T){ //如果使用3AES時會執行
                 rkey = rkey2;
                 deBLOCK(iv);
                 rkey = rkey3;
@@ -488,7 +503,7 @@ void enCFB(char in[],char out[]){
                 rkey = rkey1;
             }
             xor(buffer, iv);
-            push(buffer, iv);
+            push(buffer, iv); //加入偏移量
         }
         fwrite(buffer,1,numr,filew);
     }
@@ -507,7 +522,7 @@ void deCFB(char in[],char out[]){
 	while(feof(filer)==0){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             enBLOCK(iv);
-            if(T){
+            if(T){ //如果使用3AES時會執行
                 rkey = rkey2;
                 deBLOCK(iv);
                 rkey = rkey3;
@@ -516,7 +531,7 @@ void deCFB(char in[],char out[]){
             }
             copyBuff(buffer,last);
             xor(buffer, iv);
-            push(last,iv);
+            push(last,iv); //加入偏移量
         }
         fwrite(buffer,1,numr,filew);
     }
@@ -534,7 +549,7 @@ void enOFB(char in[],char out[]){
 	while(feof(filer)==0){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             enBLOCK(iv);
-            if(T){
+            if(T){ //如果使用3AES時會執行
                 rkey = rkey2;
                 deBLOCK(iv);
                 rkey = rkey3;
@@ -542,7 +557,7 @@ void enOFB(char in[],char out[]){
                 rkey = rkey1;
             }
             xor(buffer, iv);
-            push(iv, iv);
+            push(iv, iv); //加入偏移量
         }
         numw=fwrite(buffer,1,numr,filew);
     }
@@ -560,7 +575,7 @@ void deOFB(char in[],char out[]){
 	while(feof(filer)==0){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             enBLOCK(iv);
-            if(T){
+            if(T){ //如果使用3AES時會執行
                 rkey = rkey2;
                 deBLOCK(iv);
                 rkey = rkey3;
@@ -568,7 +583,7 @@ void deOFB(char in[],char out[]){
                 rkey = rkey1;
             }
             xor(buffer, iv);
-            push(iv, iv);
+            push(iv, iv); //加入偏移量
         }
         numw=fwrite(buffer,1,numr,filew);
     }
