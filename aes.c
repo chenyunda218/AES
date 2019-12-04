@@ -65,10 +65,17 @@ BYTE keyLen = 4; //key長度
 char inputFile[100] = {0}; //輸入檔案
 char outputFile[100] = {0}; //輸出檔案
 BYTE key[32] = {0}; //key
-BYTE rkey[160] = {0}; //round key
+BYTE key1[32] = {0};
+BYTE key2[32] = {0}; //key 2
+BYTE key3[32] = {0}; //key 3
+BYTE *rkey; //round key
+BYTE rkey1[160] = {0}; //round key
+BYTE rkey2[160] = {0}; //round key
+BYTE rkey3[160] = {0}; //round key
 char mode[5] = "ECB"; //加密模式
 char en = 1; //加解密旗號
 char n = 1; //偏移量
+char T = 0; //3AES 旗號
 
 int main(int argc , char *argv[]){
     init(argc,argv); //初始化
@@ -124,8 +131,14 @@ void init(int argc , char *argv[]){
     for(int i = 0; i < 128; i++) { //初始化AES_xtime
         AES_xtime[i] = i << 1;
         AES_xtime[128 + i] = (i << 1) ^ 0x1b;
+    } //Key Expansion
+    KeyExpansion(rkey1,key);
+    if(T){
+        KeyExpansion(rkey1,key1);
+        KeyExpansion(rkey2,key2);
+        KeyExpansion(rkey3,key3);
     }
-    KeyExpansion(rkey,key); //Key Expansion
+    rkey = rkey1;
 }
 
 void SubBytes(BYTE buffer[]){ 
@@ -144,6 +157,13 @@ void readArg(int argc, char *argv[]){
         char *arg = argv[i];
         if(arg[0] == '-'){
             switch(arg[1]){
+                case '3': //讀取 3 把 key
+                    T = 1;
+                    strcpy(key,argv[++i]);
+                    strcpy(key1,argv[i]);
+                    strcpy(key2,argv[++i]);
+                    strcpy(key3,argv[++i]);
+                    break;
                 case 'k': //讀取key
                     strcpy(key,argv[++i]);
                     break;
@@ -291,6 +311,13 @@ void enECB(char in[],char out[]){
 	for(int i=0;i<body;i++){
         fread(buffer,1,BLOCK,filer);
         enBLOCK(buffer);
+        if(T){
+            rkey = rkey2;
+            deBLOCK(buffer);
+            rkey = rkey3;
+            enBLOCK(buffer);
+            rkey = rkey1;
+        }
         fwrite(buffer,1,BLOCK,filew);
     }
     if(tail > 0){
@@ -315,6 +342,13 @@ void deECB(char in[],char out[]){
     fread(&tail,1,1,filer);
     for(int i=0;i<body;i++){
         fread(buffer,1,BLOCK,filer);
+        if(T){
+            rkey = rkey3;
+            deBLOCK(buffer);
+            rkey = rkey2;
+            enBLOCK(buffer);
+            rkey = rkey1;
+        }
         deBLOCK(buffer);
         fwrite(buffer,1,BLOCK,filew);
     }
@@ -338,6 +372,13 @@ void enCBC(char in[],char out[]){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             xor(buffer,last);
             enBLOCK(buffer);
+            if(T){
+                rkey = rkey2;
+                deBLOCK(buffer);
+                rkey = rkey3;
+                enBLOCK(buffer);
+                rkey = rkey1;
+            }
             copyBuff(buffer,last);
         }
         fwrite(buffer,1,numr,filew);
@@ -357,6 +398,13 @@ void deCBC(char in[],char out[]){
     while(feof(filer)==0){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             copyBuff(buffer,next);
+            if(T){
+                rkey = rkey3;
+                deBLOCK(buffer);
+                rkey = rkey2;
+                enBLOCK(buffer);
+                rkey = rkey1;
+            }
             deBLOCK(buffer);
             xor(buffer,last);
             copyBuff(next,last);
@@ -392,6 +440,13 @@ void CTR(char in[],char out[]){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             copyBuff(counter,last);
             enBLOCK(last);
+            if(T){
+                rkey = rkey2;
+                deBLOCK(last);
+                rkey = rkey3;
+                enBLOCK(last);
+                rkey = rkey1;
+            }
             xor(buffer,last);
             increase(counter);
         }
@@ -425,6 +480,13 @@ void enCFB(char in[],char out[]){
 	while(feof(filer)==0){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             enBLOCK(iv);
+            if(T){
+                rkey = rkey2;
+                deBLOCK(iv);
+                rkey = rkey3;
+                enBLOCK(iv);
+                rkey = rkey1;
+            }
             xor(buffer, iv);
             push(buffer, iv);
         }
@@ -445,6 +507,13 @@ void deCFB(char in[],char out[]){
 	while(feof(filer)==0){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             enBLOCK(iv);
+            if(T){
+                rkey = rkey2;
+                deBLOCK(iv);
+                rkey = rkey3;
+                enBLOCK(iv);
+                rkey = rkey1;
+            }
             copyBuff(buffer,last);
             xor(buffer, iv);
             push(last,iv);
@@ -465,6 +534,13 @@ void enOFB(char in[],char out[]){
 	while(feof(filer)==0){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             enBLOCK(iv);
+            if(T){
+                rkey = rkey2;
+                deBLOCK(iv);
+                rkey = rkey3;
+                enBLOCK(iv);
+                rkey = rkey1;
+            }
             xor(buffer, iv);
             push(iv, iv);
         }
@@ -484,6 +560,13 @@ void deOFB(char in[],char out[]){
 	while(feof(filer)==0){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             enBLOCK(iv);
+            if(T){
+                rkey = rkey2;
+                deBLOCK(iv);
+                rkey = rkey3;
+                enBLOCK(iv);
+                rkey = rkey1;
+            }
             xor(buffer, iv);
             push(iv, iv);
         }
