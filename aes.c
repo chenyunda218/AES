@@ -3,7 +3,12 @@
 // gcc AES.c -o aes.exe 編譯
 // 參數說明
 // -f 輸入檔案 -o 輸出檔案 -k 密碼 -e 加密 -d 解密 -m 模式
-// aes.exe -f test.7z -o out.en -k test -e -m ECB
+
+//                   範例
+// 使用 key test 以ECB模式加密 test.7z 輸出為 out.en 
+// ./aes.exe -f test.7z -o out.en -k test -e -m ECB
+// 使用 key test 以ECB模式解密 out.en 輸出為 out.7z 
+// ./aes.exe -f out.en -o out.7z -k test -d -m ECB
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,17 +68,19 @@ BYTE shiftTableInv[BLOCK] = {0,13,10,7,4,1,14,11,8,5,2,15,12,9,6,3};
 
 BYTE AES_xtime[256]; //MixColumns所使用的陣列
 BYTE keyLen = 4; //key長度
-char inputFile[100] = {0}; //輸入檔案
-char outputFile[100] = {0}; //輸出檔案
-BYTE key[32] = {0}; //current key
-BYTE key1[32] = {0}; //key 1
-BYTE key2[32] = {0}; //key 2
-BYTE key3[32] = {0}; //key 3
+char *inputFile; //輸入檔案
+char *outputFile; //輸出檔案
+BYTE *key; //current key
+BYTE *key1; //key 1
+BYTE *key2; //key 2
+BYTE *key3; //key 3
 BYTE *rkey; //round key
 BYTE rkey1[160] = {0}; //round key1
 BYTE rkey2[160] = {0}; //round key2
 BYTE rkey3[160] = {0}; //round key3
-char mode[5] = "ECB"; //加密模式
+char def[] = "ECB"; //默認模式
+char defO[] = "output"; //默認輸出
+char *mode = &def; //加密模式
 char en = 1; //加解密旗號
 char n = 1; //偏移量
 char T = 0; //3AES 旗號
@@ -118,13 +125,12 @@ int main(int argc , char *argv[]){
     }else{
         strcpy(crypt,"decrypted");
     }
-    printf("%s %s output to %s by %s mode",crypt,inputFile,outputFile,mode);
-    
+    printf("%s %s output to file named %s by %s mode",crypt,inputFile,outputFile,mode);
     return 0;
 }
 
 void init(int argc , char *argv[]){
-    strcpy(outputFile,"output");
+    outputFile = &defO;
     readArg(argc,argv); //讀取參數
     for(int i = 0 ;i<256;i++){ //初始化inverse Sbox
         AES_SboxInv[AES_Sbox[i]] = i;
@@ -160,22 +166,22 @@ void readArg(int argc, char *argv[]){
             switch(arg[1]){
                 case '3': //讀取 3 把 key
                     T = 1;
-                    strcpy(key,argv[++i]);
-                    strcpy(key1,argv[i]);
-                    strcpy(key2,argv[++i]);
-                    strcpy(key3,argv[++i]);
+                    key = &argv[++i];
+                    key1 = &argv[i];
+                    key2 = &argv[++i];
+                    key3 = &argv[++i];
                     break;
                 case 'k': //讀取key
-                    strcpy(key,argv[++i]);
+                    key = &argv[++i];
                     break;
                 case 'f': //讀取輸入檔案路徑
-                    strcpy(inputFile,argv[++i]);
+                    inputFile = &argv[++i];
                     break;
                 case 'm':  //讀取模式
-                    strcpy(mode,argv[++i]);
+                    mode = &argv[++i];
                     break;
                 case 'o': //讀取輸出檔案路徑
-                    strcpy(outputFile,argv[++i]);
+                    outputFile = &argv[++i];
                     break;
                 case 'd': //設為解密旗號
                     en = 0;
@@ -192,6 +198,7 @@ void readArg(int argc, char *argv[]){
                 case 'n': //設定偏移量
                     n = atoi(argv[++i]);
                     if(n>16) n = 16;
+                    if(n>0) n = 1;
                     break;
             }
         }
@@ -211,7 +218,6 @@ void ShiftRows(BYTE buffer[]){
     }
     copyBuff(temp,buffer);
 }
-
 
 void ShiftRowsInv(BYTE buffer[]){
     BYTE temp[BLOCK];
@@ -319,7 +325,7 @@ void enECB(char in[],char out[]){
             enBLOCK(buffer); //使用key3加密
             rkey = rkey1; //使用key1
         }
-        fwrite(buffer,1,BLOCK,filew);
+        fwrite(buffer,1,BLOCK,filew); //寫入輸出檔案
     }
     if(tail > 0){ //填充檔案
         fread(buffer,1,BLOCK,filer); //讀取檔案
@@ -414,13 +420,13 @@ void deCBC(char in[],char out[]){
         if((numr=fread(buffer,1,BLOCK,filer)) == BLOCK){
             copyBuff(buffer,next);
             if(T){ //如果使用3AES時會執行
-                rkey = rkey3;
-                deBLOCK(buffer);
-                rkey = rkey2;
-                enBLOCK(buffer);
-                rkey = rkey1;
+                rkey = rkey3; //使用key3
+                deBLOCK(buffer); //使用key3解密
+                rkey = rkey2; //使用key2
+                enBLOCK(buffer); //使用key2加密
+                rkey = rkey1; //使用key1
             }
-            deBLOCK(buffer);
+            deBLOCK(buffer); //使用key1解密
             xor(buffer,last);
             copyBuff(next,last);
         }
