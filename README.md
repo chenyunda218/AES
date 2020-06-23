@@ -1,5 +1,5 @@
 # AES
-This is a home work for my college.  
+This is a home work for college.  
 來源為 http://www.codedata.com.tw/social-coding/aes/ ，授權為 GNU GPL 授權。  
 本程式將來源程式擴充成5種加密模式  
 gcc AES.c -o aes.exe 編譯  
